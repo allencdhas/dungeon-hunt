@@ -4,6 +4,7 @@ import React, { useState } from 'react';
 import { ConnectButton } from '@rainbow-me/rainbowkit';
 import { useAccount, useBalance, useWriteContract } from 'wagmi';
 import { parseEther } from 'viem';
+import TransactionSimulator from './TransactionSimulator';
 
 // Mock smart contract ABI for D&D game
 const DnDGameABI = [
@@ -65,29 +66,44 @@ const Web3Manager: React.FC<Web3ManagerProps> = ({
     address: address,
   });
 
+  const [isTransactionOpen, setIsTransactionOpen] = useState(false);
+  const [transactionType, setTransactionType] = useState<'mint' | 'trade' | 'quest_reward' | 'battle_reward'>('mint');
+  const [transactionData, setTransactionData] = useState<any>({});
+
   const contractAddress = '0x1234567890123456789012345678901234567890'; // Mock address
 
   const { writeContract, isPending: isMinting } = useWriteContract({
     mutation: {
       onSuccess: (data: any) => {
         console.log('Character NFT minted successfully:', data);
-        alert(`Character NFT minted! Transaction: ${data.hash}`);
+        // Don't show alert, let transaction simulator handle it
       },
       onError: (error: any) => {
         console.error('Failed to mint character:', error);
-        alert('Failed to mint character NFT');
+        // Don't show alert, let transaction simulator handle it
       },
     },
   });
 
   const mintCharacterNFT = () => {
-    writeContract({
-      address: contractAddress as `0x${string}`,
-      abi: DnDGameABI,
-      functionName: 'mintCharacter',
-      args: ['Adventurer', 'Fighter'],
-      value: parseEther('0.01'), // 0.01 ETH minting fee
+    setTransactionType('mint');
+    setTransactionData({
+      item: 'Character NFT',
+      amount: 1,
+      gasFee: 0.01
     });
+    setIsTransactionOpen(true);
+    
+    // Simulate the actual contract call after a delay
+    setTimeout(() => {
+      writeContract({
+        address: contractAddress as `0x${string}`,
+        abi: DnDGameABI,
+        functionName: 'mintCharacter',
+        args: ['Adventurer', 'Fighter'],
+        value: parseEther('0.01'), // 0.01 ETH minting fee
+      });
+    }, 1000);
   };
 
   // Update parent component when connection status changes
@@ -146,6 +162,14 @@ const Web3Manager: React.FC<Web3ManagerProps> = ({
           </div>
         )}
       </div>
+      
+      {/* Transaction Simulator Modal */}
+      <TransactionSimulator
+        isOpen={isTransactionOpen}
+        onClose={() => setIsTransactionOpen(false)}
+        transactionType={transactionType}
+        transactionData={transactionData}
+      />
     </div>
   );
 };

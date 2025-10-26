@@ -2,6 +2,8 @@
 
 import React, { useState, useRef, useEffect } from 'react';
 import Web3Manager from './Web3Manager';
+import { mockGameData, mockGameHelpers } from '../data/mockGameData';
+import TransactionSimulator from './TransactionSimulator';
 
 interface Command {
   command: string;
@@ -15,9 +17,15 @@ interface Character {
   level: number;
   hp: number;
   maxHp: number;
+  mp: number;
+  maxMp: number;
+  attack: number;
+  defense: number;
+  magic: number;
   gold: number;
   experience: number;
   inventory: string[];
+  quests: string[];
 }
 
 interface GameState {
@@ -49,16 +57,26 @@ const DnDTerminal: React.FC = () => {
   ]);
   
   const [inputValue, setInputValue] = useState('');
+  const [isTransactionOpen, setIsTransactionOpen] = useState(false);
+  const [transactionType, setTransactionType] = useState<'mint' | 'trade' | 'quest_reward' | 'battle_reward'>('mint');
+  const [transactionData, setTransactionData] = useState<any>({});
+  
   const [gameState, setGameState] = useState<GameState>({
     character: {
-      name: 'Adventurer',
+      name: 'Aelindra',
       class: 'Fighter',
       level: 1,
-      hp: 20,
-      maxHp: 20,
-      gold: 100,
+      hp: 25,
+      maxHp: 25,
+      mp: 10,
+      maxMp: 10,
+      attack: 15,
+      defense: 12,
+      magic: 5,
+      gold: 150,
       experience: 0,
-      inventory: ['Sword', 'Shield', 'Health Potion']
+      inventory: ['Iron Sword', 'Leather Armor', 'Health Potion'],
+      quests: ['goblin_hunt']
     },
     location: 'Tavern',
     isConnected: false
@@ -93,6 +111,9 @@ const DnDTerminal: React.FC = () => {
               <div><span className="text-yellow-400">quest</span> - Start a new quest</div>
               <div><span className="text-yellow-400">levelup</span> - Level up your character</div>
               <div><span className="text-yellow-400">trade</span> - Trade with other players</div>
+              <div><span className="text-yellow-400">event</span> - Trigger a random event</div>
+              <div><span className="text-yellow-400">npc</span> - Talk to NPCs</div>
+              <div><span className="text-yellow-400">location</span> - Check current location</div>
               <div><span className="text-yellow-400">clear</span> - Clear terminal</div>
             </div>
           </div>
@@ -119,6 +140,10 @@ const DnDTerminal: React.FC = () => {
               <div><span className="text-yellow-400">Class:</span> {gameState.character.class}</div>
               <div><span className="text-yellow-400">Level:</span> {gameState.character.level}</div>
               <div><span className="text-yellow-400">HP:</span> {gameState.character.hp}/{gameState.character.maxHp}</div>
+              <div><span className="text-yellow-400">MP:</span> {gameState.character.mp}/{gameState.character.maxMp}</div>
+              <div><span className="text-yellow-400">Attack:</span> {gameState.character.attack}</div>
+              <div><span className="text-yellow-400">Defense:</span> {gameState.character.defense}</div>
+              <div><span className="text-yellow-400">Magic:</span> {gameState.character.magic}</div>
               <div><span className="text-yellow-400">Gold:</span> {gameState.character.gold}</div>
               <div><span className="text-yellow-400">Experience:</span> {gameState.character.experience}</div>
             </div>
@@ -140,8 +165,9 @@ const DnDTerminal: React.FC = () => {
         break;
 
       case 'explore':
-        const locations = ['Dark Forest', 'Ancient Ruins', 'Mystic Cave', 'Dragon\'s Lair'];
+        const locations = Object.keys(mockGameData.locations);
         const randomLocation = locations[Math.floor(Math.random() * locations.length)];
+        const locationData = mockGameData.locations[randomLocation as keyof typeof mockGameData.locations];
         
         setGameState(prev => ({
           ...prev,
@@ -150,71 +176,110 @@ const DnDTerminal: React.FC = () => {
         
         output = (
           <div className="text-green-400">
-            🗺️ You venture into the {randomLocation}...
+            🗺️ You venture into {locationData.name}...
             <div className="text-gray-300 mt-1">
-              The air is thick with mystery. What will you find here?
+              {locationData.description}
             </div>
+            <div className="text-yellow-400 mt-1">
+              Available activities: {locationData.events.join(', ')}
+            </div>
+            {locationData.enemies.length > 0 && (
+              <div className="text-red-400 mt-1">
+                ⚠️ Dangerous enemies: {locationData.enemies.join(', ')}
+              </div>
+            )}
           </div>
         );
         break;
 
       case 'fight':
-        const enemies = ['Goblin', 'Orc', 'Skeleton', 'Dark Wizard'];
-        const enemy = enemies[Math.floor(Math.random() * enemies.length)];
-        const damage = Math.floor(Math.random() * 10) + 1;
-        const goldReward = Math.floor(Math.random() * 50) + 10;
-        const expReward = Math.floor(Math.random() * 20) + 5;
+        const enemy = mockGameHelpers.getRandomEnemy(gameState.location);
+        if (!enemy) {
+          output = (
+            <div className="text-red-400">
+              ❌ No enemies found in {gameState.location}. Try exploring a more dangerous location!
+            </div>
+          );
+          break;
+        }
+
+        const playerDamage = Math.max(1, gameState.character.attack - enemy.defense + Math.floor(Math.random() * 5));
+        const enemyDamage = Math.max(1, enemy.attack - gameState.character.defense + Math.floor(Math.random() * 3));
+        
+        // If wallet is connected, simulate blockchain battle reward claim
+        if (gameState.isConnected) {
+          setTransactionType('battle_reward');
+          setTransactionData({
+            item: enemy.loot.join(', '),
+            amount: enemy.gold,
+            gasFee: 0.001
+          });
+          setIsTransactionOpen(true);
+        }
         
         setGameState(prev => ({
           ...prev,
           character: {
             ...prev.character,
-            hp: Math.max(0, prev.character.hp - damage),
-            gold: prev.character.gold + goldReward,
-            experience: prev.character.experience + expReward
+            hp: Math.max(0, prev.character.hp - enemyDamage),
+            gold: prev.character.gold + enemy.gold,
+            experience: prev.character.experience + enemy.experience,
+            inventory: [...prev.character.inventory, ...enemy.loot]
           }
         }));
         
         output = (
           <div className="text-red-400">
-            ⚔️ Battle with {enemy}!
+            ⚔️ Battle with {enemy.name}!
             <div className="text-gray-300 mt-1">
-              You take {damage} damage but defeat the {enemy}!
+              You deal {playerDamage} damage and defeat the {enemy.name}!
+            </div>
+            <div className="text-gray-300 mt-1">
+              You take {enemyDamage} damage in return.
             </div>
             <div className="text-yellow-400 mt-1">
-              +{goldReward} gold, +{expReward} experience
+              +{enemy.gold} gold, +{enemy.experience} experience
             </div>
+            <div className="text-purple-400 mt-1">
+              Loot: {enemy.loot.join(', ')}
+            </div>
+            {gameState.isConnected && (
+              <div className="text-blue-400 mt-1">
+                🔗 Battle rewards will be claimed on blockchain!
+              </div>
+            )}
           </div>
         );
         break;
 
       case 'shop':
-        const shopItems = ['Health Potion', 'Magic Sword', 'Shield of Protection', 'Scroll of Fireball'];
-        const randomItem = shopItems[Math.floor(Math.random() * shopItems.length)];
-        const itemCost = Math.floor(Math.random() * 100) + 50;
+        const shopItem = mockGameHelpers.getRandomShopItem();
         
-        if (gameState.character.gold >= itemCost) {
+        if (gameState.character.gold >= shopItem.price) {
           setGameState(prev => ({
             ...prev,
             character: {
               ...prev.character,
-              gold: prev.character.gold - itemCost,
-              inventory: [...prev.character.inventory, randomItem]
+              gold: prev.character.gold - shopItem.price,
+              inventory: [...prev.character.inventory, shopItem.name]
             }
           }));
           
           output = (
             <div className="text-green-400">
-              🛒 You purchase {randomItem} for {itemCost} gold!
+              🛒 You purchase {shopItem.name} for {shopItem.price} gold!
               <div className="text-gray-300 mt-1">
-                Remaining gold: {gameState.character.gold - itemCost}
+                {shopItem.description}
+              </div>
+              <div className="text-gray-300 mt-1">
+                Remaining gold: {gameState.character.gold - shopItem.price}
               </div>
             </div>
           );
         } else {
           output = (
             <div className="text-red-400">
-              💰 Not enough gold! You need {itemCost} gold to buy {randomItem}.
+              💰 Not enough gold! You need {shopItem.price} gold to buy {shopItem.name}.
               <div className="text-gray-300 mt-1">
                 Current gold: {gameState.character.gold}
               </div>
@@ -268,33 +333,47 @@ const DnDTerminal: React.FC = () => {
         break;
 
       case 'quest':
-        const quests = [
-          'Defeat the Goblin King',
-          'Retrieve the Lost Artifact',
-          'Rescue the Captured Princess',
-          'Clear the Haunted Crypt',
-          'Find the Dragon\'s Treasure'
-        ];
-        const randomQuest = quests[Math.floor(Math.random() * quests.length)];
-        const questReward = Math.floor(Math.random() * 100) + 50;
+        const questKeys = Object.keys(mockGameData.quests);
+        const randomQuestKey = questKeys[Math.floor(Math.random() * questKeys.length)];
+        const quest = mockGameData.quests[randomQuestKey as keyof typeof mockGameData.quests];
+        
+        // If wallet is connected, simulate blockchain quest reward claim
+        if (gameState.isConnected) {
+          setTransactionType('quest_reward');
+          setTransactionData({
+            item: quest.reward.items.join(', '),
+            amount: quest.reward.gold,
+            gasFee: 0.002
+          });
+          setIsTransactionOpen(true);
+        }
         
         setGameState(prev => ({
           ...prev,
           character: {
             ...prev.character,
-            experience: prev.character.experience + questReward
+            experience: prev.character.experience + quest.reward.experience,
+            quests: [...prev.character.quests, randomQuestKey]
           }
         }));
         
         output = (
           <div className="text-purple-400">
-            📜 New Quest: {randomQuest}
+            📜 New Quest: {quest.name}
             <div className="text-gray-300 mt-1">
-              Quest accepted! You gain {questReward} experience.
+              {quest.description}
             </div>
             <div className="text-yellow-400 mt-1">
-              Complete the quest to earn additional rewards!
+              Objectives: {quest.objectives.join(', ')}
             </div>
+            <div className="text-green-400 mt-1">
+              Reward: {quest.reward.gold} gold, {quest.reward.experience} XP, {quest.reward.items.join(', ')}
+            </div>
+            {gameState.isConnected && (
+              <div className="text-blue-400 mt-1">
+                🔗 Quest rewards will be claimed on blockchain!
+              </div>
+            )}
           </div>
         );
         break;
@@ -345,6 +424,16 @@ const DnDTerminal: React.FC = () => {
           const randomItem = tradeItems[Math.floor(Math.random() * tradeItems.length)];
           const tradePrice = Math.floor(Math.random() * 200) + 100;
           
+          // Trigger transaction simulation
+          setTransactionType('trade');
+          setTransactionData({
+            item: randomItem,
+            amount: 1,
+            recipient: 'Player_' + Math.random().toString(36).substr(2, 5),
+            gasFee: 0.005
+          });
+          setIsTransactionOpen(true);
+          
           output = (
             <div className="text-blue-400">
               🤝 Trading with another player...
@@ -352,11 +441,108 @@ const DnDTerminal: React.FC = () => {
                 Player offers: {randomItem} for {tradePrice} gold
               </div>
               <div className="text-yellow-400 mt-1">
-                This would use smart contracts for secure peer-to-peer trading!
+                Initiating blockchain transaction for secure peer-to-peer trading!
               </div>
             </div>
           );
         }
+        break;
+
+      case 'event':
+        const randomEvent = mockGameHelpers.getRandomEvent();
+        const randomOutcome = randomEvent.outcomes[Math.floor(Math.random() * randomEvent.outcomes.length)];
+        
+        let eventReward = '';
+        if (randomOutcome.type === 'gold') {
+          setGameState(prev => ({
+            ...prev,
+            character: {
+              ...prev.character,
+              gold: prev.character.gold + randomOutcome.value
+            }
+          }));
+          eventReward = `+${randomOutcome.value} gold`;
+        } else if (randomOutcome.type === 'experience') {
+          setGameState(prev => ({
+            ...prev,
+            character: {
+              ...prev.character,
+              experience: prev.character.experience + randomOutcome.value
+            }
+          }));
+          eventReward = `+${randomOutcome.value} experience`;
+        } else if (randomOutcome.type === 'item') {
+          setGameState(prev => ({
+            ...prev,
+            character: {
+              ...prev.character,
+              inventory: [...prev.character.inventory, randomOutcome.value]
+            }
+          }));
+          eventReward = `+${randomOutcome.value}`;
+        }
+        
+        output = (
+          <div className="text-purple-400">
+            🎲 Random Event: {randomEvent.name}
+            <div className="text-gray-300 mt-1">
+              {randomEvent.description}
+            </div>
+            <div className="text-yellow-400 mt-1">
+              {randomOutcome.message}
+            </div>
+            {eventReward && (
+              <div className="text-green-400 mt-1">
+                Reward: {eventReward}
+              </div>
+            )}
+          </div>
+        );
+        break;
+
+      case 'npc':
+        const npcKeys = Object.keys(mockGameData.npcs);
+        const randomNPC = npcKeys[Math.floor(Math.random() * npcKeys.length)];
+        const npc = mockGameData.npcs[randomNPC as keyof typeof mockGameData.npcs];
+        const dialogue = mockGameHelpers.getRandomNPCDialogue(randomNPC);
+        
+        output = (
+          <div className="text-blue-400">
+            👤 You meet {npc.name}
+            <div className="text-gray-300 mt-1">
+              {npc.greeting}
+            </div>
+            <div className="text-yellow-400 mt-1">
+              "{dialogue}"
+            </div>
+          </div>
+        );
+        break;
+
+      case 'location':
+        const currentLocation = mockGameData.locations[gameState.location as keyof typeof mockGameData.locations];
+        
+        output = (
+          <div className="text-green-400">
+            📍 Current Location: {currentLocation.name}
+            <div className="text-gray-300 mt-1">
+              {currentLocation.description}
+            </div>
+            <div className="text-yellow-400 mt-1">
+              Available activities: {currentLocation.events.join(', ')}
+            </div>
+            {currentLocation.shop && (
+              <div className="text-blue-400 mt-1">
+                🛒 Shop available here
+              </div>
+            )}
+            {currentLocation.enemies.length > 0 && (
+              <div className="text-red-400 mt-1">
+                ⚠️ Enemies: {currentLocation.enemies.join(', ')}
+              </div>
+            )}
+          </div>
+        );
         break;
 
       case 'clear':
@@ -468,7 +654,7 @@ const DnDTerminal: React.FC = () => {
 
         {/* Game Status Bar */}
         <div className="mt-4 bg-gray-900 rounded-lg border border-gray-700 p-4">
-          <div className="grid grid-cols-2 md:grid-cols-6 gap-4 text-sm">
+          <div className="grid grid-cols-2 md:grid-cols-8 gap-4 text-sm">
             <div>
               <span className="text-yellow-400">Location:</span>
               <div className="text-gray-300">{gameState.location}</div>
@@ -476,6 +662,18 @@ const DnDTerminal: React.FC = () => {
             <div>
               <span className="text-yellow-400">HP:</span>
               <div className="text-gray-300">{gameState.character.hp}/{gameState.character.maxHp}</div>
+            </div>
+            <div>
+              <span className="text-yellow-400">MP:</span>
+              <div className="text-gray-300">{gameState.character.mp}/{gameState.character.maxMp}</div>
+            </div>
+            <div>
+              <span className="text-yellow-400">Attack:</span>
+              <div className="text-gray-300">{gameState.character.attack}</div>
+            </div>
+            <div>
+              <span className="text-yellow-400">Defense:</span>
+              <div className="text-gray-300">{gameState.character.defense}</div>
             </div>
             <div>
               <span className="text-yellow-400">Gold:</span>
@@ -486,15 +684,19 @@ const DnDTerminal: React.FC = () => {
               <div className="text-gray-300">{gameState.character.level}</div>
             </div>
             <div>
-              <span className="text-yellow-400">Experience:</span>
-              <div className="text-gray-300">{gameState.character.experience}</div>
-            </div>
-            <div>
               <span className="text-yellow-400">Items:</span>
               <div className="text-gray-300">{gameState.character.inventory.length}</div>
             </div>
           </div>
         </div>
+        
+        {/* Transaction Simulator Modal */}
+        <TransactionSimulator
+          isOpen={isTransactionOpen}
+          onClose={() => setIsTransactionOpen(false)}
+          transactionType={transactionType}
+          transactionData={transactionData}
+        />
       </div>
     </div>
   );
